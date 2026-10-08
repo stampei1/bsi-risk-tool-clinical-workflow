@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<meta name="build" content="20261008152523">
+<meta name="build" content="20261008153406">
 <title>BSI Watch</title>
 <meta name="description" content="Demo: a daily, agent-prepared bloodstream-infection risk brief for an allo-HCT unit.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261008152523">
+<link rel="stylesheet" href="style.css?v=20261008153406">
 </head>
 <body>
 <header class="top">
@@ -57,6 +57,8 @@
       <li><span class="step">3</span><div><b>Triage</b><p>Sorts patients into High, Watch and Low, and flags anyone whose stool result is out of date.</p></div></li>
       <li><span class="step">4</span><div><b>Brief</b><p>Writes a two-line summary of what changed since yesterday and suggests next steps from the unit's protocol. Clinicians acknowledge or act.</p></div></li>
     </ol>
+    <h3>Data the agent pulls</h3>
+    <div class="srcs"><span class="src">Stool 16S results</span><span class="src">Antibiotic administrations (MAR)</span><span class="src">Blood counts (ANC)</span><span class="src">Vitals</span><span class="src">Microbiology</span><span class="src">Transplant date</span></div>
     <h3>What the tiers mean</h3>
     <div id="tierTable"></div>
     <p class="fine">Tiers are set on the retrospective MSK cohort: High = top 10% of stool-sample risk scores, Watch = next 20%. Rates are the share of samples
@@ -64,6 +66,6 @@
       cut-offs and suggested steps are illustrative, not validated. Patients and bed numbers are real de-identified timelines placed on a simulated unit.</p>
   </div>
 </div>
-<script src="app.js?v=20261008152523"></script>
+<script src="app.js?v=20261008153406"></script>
 </body>
 </html>

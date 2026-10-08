@@ -105,31 +105,22 @@ function reasons(o, s, c) {
 }
 
 // ------------------------------------------------------------------ brief
-function brief(d) {
-  const on = S.W.patients.filter(p => p.stay[0] <= d && d <= p.stay[1]);
-  const st = on.map(p => [p, status(p, d), status(p, d - 1)]);
-  const high = st.filter(([, s]) => s.tier === 'high' && !s.culture.length);
-  const up = st.filter(([, s, y]) => s.tier === 'high' && y.tier !== 'high' && !s.culture.length);
-  const newRes = st.filter(([, s]) => s.last && s.last.d === d).length;
-  const due = st.filter(([, s]) => s.tier === 'due');
-  const cultures = st.filter(([p]) => p.infections.some(([day]) => day === d));
-  const head = high.length ? `${plural(high.length, 'patient')} at high risk today` : 'No patients at high risk today';
-  const items = [];
-  for (const [p, s] of up) items.push(['high', `Bed ${p.bed} moved to High for ${NAME[s.top]} (${pct(s.org[s.top].p)} risk in 14 days)`]);
-  const stay = high.filter(h => !up.includes(h));
-  if (stay.length) items.push(['high', `Still High: ${stay.map(([p, s]) => `Bed ${p.bed} (${NAME[s.top]})`).join(', ')}`]);
-  for (const [p] of cultures) items.push(['high', `Bed ${p.bed}: positive blood culture today (${agent(p.infections.find(([day]) => day === d)[1])})`]);
-  if (due.length) items.push(['due', `${plural(due.length, 'patient')} due a stool sample: Bed ${due.map(([p]) => p.bed).join(', ')}`]);
-  items.push(['muted', `${plural(newRes, 'new stool result')} since yesterday · ${on.length} patients on the unit`]);
-  $('brief').innerHTML = `<div class="kicker"><span class="dot"></span>Prepared by the agent · unit day ${d}</div>
-    <h1>${head}</h1>
-    <ul>${items.map(([k, t]) => `<li><span class="b" style="background:var(--${k === 'muted' ? 'ink-3' : k})"></span>${t}</li>`).join('')}</ul>
-    <div class="sources">${['Stool 16S', 'Antibiotics (MAR)', 'Blood counts', 'Vitals', 'Microbiology'].map(x => `<span class="src">${x}</span>`).join('')}</div>`;
-  return st;
-}
 function agent(a) {
   return ({ Escherichia: 'E. coli', Enterococcus_Faecium_Vancomycin_Resistant: 'VRE', Enterococcus_Faecium: 'E. faecium',
     Enterococcus_Faecalis: 'E. faecalis', Enterococcus_Vancomycin_Resistant: 'VRE', Klebsiella_Pneumoniae: 'K. pneumoniae' })[a] || a.replace(/_/g, ' ');
+}
+const COVERED = (o, a) => (o === 'ecoli' && a === 'Escherichia') || (o === 'entero' && a.startsWith('Enterococcus'));
+function brief(d, st) {
+  const act = st.filter(([, s]) => s.need);
+  const up = st.filter(([, s, y]) => s.tier === 'high' && y.tier !== 'high' && !s.culture.length);
+  const cultures = st.filter(([p]) => p.infections.some(([day]) => day === d));
+  const head = act.length ? `${plural(act.length, 'patient')} need${act.length === 1 ? 's' : ''} attention today` : 'All clear today';
+  const lines = [];
+  if (up.length) lines.push(`New to High risk: ${up.map(([p, s]) => `Bed ${p.bed} (${NAME[s.top]})`).join(', ')}`);
+  if (cultures.length) lines.push(`Positive blood culture: ${cultures.map(([p]) => `Bed ${p.bed} (${agent(p.infections.find(([day]) => day === d)[1])})`).join(', ')}`);
+  if (!lines.length) lines.push(act.length ? 'No changes since yesterday' : `${st.length} patients on the unit, none at high risk`);
+  $('brief').innerHTML = `<div class="kicker"><span class="dot"></span>Morning brief · prepared by the agent</div>
+    <h1>${head}</h1><p class="sub">${lines.join(' · ')}</p>`;
 }
 
 // ------------------------------------------------------------------ list
@@ -137,110 +128,112 @@ function render() {
   const d = S.day;
   $('dayNum').textContent = d;
   $('prevDay').disabled = d <= S.W.span[0]; $('nextDay').disabled = d >= S.W.span[1];
-  const st = brief(d);
-  const cult = st.filter(([, s]) => s.culture.length);
-  const rest = st.filter(([, s]) => !s.culture.length);
-  const groups = [
-    ['Positive blood culture · last 7 days', cult, true],
-    ['Needs review', rest.filter(([, s]) => s.tier === 'high'), true],
-    ['Watch', rest.filter(([, s]) => s.tier === 'watch'), true],
-    ['Stool sample due', rest.filter(([, s]) => s.tier === 'due'), true],
-    ['Low risk', rest.filter(([, s]) => s.tier === 'low' || s.tier === 'na'), false],
-  ];
-  const byRisk = (a, b) => (b[1].org[b[1].top].p || 0) - (a[1].org[a[1].top].p || 0);
-  groups.forEach(g => g[1].sort(byRisk));
-  if (!S.sel || !st.some(([p]) => p.bed === S.sel)) S.sel = (groups.slice(1).find(g => g[1].length)?.[1][0]?.[0] || groups[0][1][0]?.[0] || {}).bed ?? null;
-  S.lowOpen = S.lowOpen ?? false;
-  $('list').innerHTML = groups.filter(([, rows]) => rows.length).map(([title, rows, open]) => {
-    const isLow = title === 'Low risk', show = !isLow || S.lowOpen;
-    rows.sort((a, b) => (b[1].org[b[1].top].p || 0) - (a[1].org[a[1].top].p || 0));
-    return `<section class="group"><h2>${title} <span class="count">${rows.length}</span>
-      ${isLow ? `<button data-toggle-low>${S.lowOpen ? 'Hide' : 'Show'}</button>` : ''}</h2>
-      ${show ? `<div class="rows">${rows.map(([p, s]) => rowHTML(p, s, d)).join('')}</div>` : ''}</section>`;
-  }).join('');
+  const on = S.W.patients.filter(p => p.stay[0] <= d && d <= p.stay[1]);
+  const st = on.map(p => { const s = status(p, d); s.need = needs(s, d); return [p, s, status(p, d - 1)]; });
+  brief(d, st);
+  const order = (x) => x.culture.some(([day]) => day === d) ? 0 : x.tier === 'high' ? 1 : x.tier === 'due' ? 2 : 3;
+  const act = st.filter(([, s]) => s.need).sort((a, b) => order(a[1]) - order(b[1]) || (b[1].org[b[1].top].p || 0) - (a[1].org[a[1].top].p || 0));
+  const rest = st.filter(([, s]) => !s.need);
+  if (!S.sel || !st.some(([p]) => p.bed === S.sel)) S.sel = act[0]?.[0].bed ?? null;
+  const counts = ['watch', 'low'].map(t => [t, rest.filter(([, s]) => s.tier === t || (t === 'low' && (s.tier === 'na' || s.culture.length))).length]);
+  let h = act.length ? `<div class="rows">${act.map(([p, s]) => rowHTML(p, s, d)).join('')}</div>`
+    : `<div class="clear"><div class="check">✓</div><b>No one needs review</b><span>Every patient is low risk or on watch, with a recent stool result.</span></div>`;
+  if (rest.length) {
+    h += `<button class="others" id="othersBtn"><span>${plural(rest.length, 'other patient')}</span>
+      <span class="mini">${counts.filter(([, n]) => n).map(([t, n]) => `<span class="pill ${t}"><span class="sw"></span>${n} ${t === 'low' ? 'low risk' : 'watch'}</span>`).join('')}</span>
+      <span class="chev">${S.othersOpen ? 'Hide' : 'Show'}</span></button>`;
+    if (S.othersOpen) h += `<div class="rows quiet">${rest.map(([p, s]) => rowHTML(p, s, d)).join('')}</div>`;
+  }
+  $('list').innerHTML = h;
   $('list').querySelectorAll('.row').forEach(r => r.onclick = () => {
     S.sel = +r.dataset.bed; render();
     if (matchMedia('(max-width: 900px)').matches) $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
-  const tl = $('list').querySelector('[data-toggle-low]'); if (tl) tl.onclick = () => { S.lowOpen = !S.lowOpen; render(); };
-  detail(st.find(([p]) => p.bed === S.sel), d);
+  const ob = $('othersBtn'); if (ob) ob.onclick = () => { S.othersOpen = !S.othersOpen; render(); };
+  const sel = st.find(([p]) => p.bed === S.sel);
+  sel ? detail(sel, d) : ($('detail').innerHTML = `<div class="empty">Select a patient</div>`);
+}
+function needs(s, d) {
+  if (s.culture.some(([day]) => day === d)) return true;        // new positive culture today
+  if (s.culture.length) return false;                            // already known; managed by the team
+  return s.tier === 'high' || s.tier === 'due';
 }
 function rowHTML(p, s, d) {
   const c = context(p, d), o = s.top, os = s.org[o];
-  let why;
+  let why, pill;
   if (s.culture.length) {
     const [day, a] = s.culture[s.culture.length - 1];
     why = `${agent(a)} in blood culture ${day === d ? 'today' : plural(d - day, 'day') + ' ago'}`;
-  } else if (s.tier === 'due') why = s.last ? `Last stool result ${plural(s.age, 'day')} ago` : 'No stool result yet this admission';
-  else if (s.tier === 'na') why = 'Not scored after infection';
-  else why = reasons(o, os.s, c).find(r => !GENERIC.has(r)) || `${NAME[o]} in stool: ${ab(os.s['ab_' + o])}`;
-  const pill = s.culture.length ? `<span class="pill high"><span class="sw"></span>Positive culture</span>`
-    : s.tier === 'due' || s.tier === 'na' ? `<span class="pill ${s.tier}"><span class="sw"></span>${TIER_LABEL[s.tier]}</span>`
-    : `<span class="pill ${s.tier}"><span class="sw"></span>${NAME[o]} · ${TIER_LABEL[s.tier]}</span>`;
-  const isNew = s.last && s.last.d === d;
-  const act = S.acts[`${p.bed}-${d}`];
-  return `<button class="row ${S.sel === p.bed ? 'sel' : ''}" data-bed="${p.bed}">
-    <span class="bed">${p.bed}</span>
-    <span><span class="who">Bed ${p.bed}<small>${p.pid} · day ${c.hct >= 0 ? '+' : ''}${c.hct}</small></span>
-      <span class="why" style="display:block">${why}</span></span>
-    <span class="side">${pill}${isNew ? '<span class="new">NEW RESULT</span>' : act?.ack ? '<span class="new" style="color:var(--low);background:var(--low-soft)">REVIEWED</span>' : ''}</span>
-  </button>`;
+    pill = `<span class="pill high"><span class="sw"></span>Positive culture</span>`;
+  } else if (s.tier === 'due') {
+    why = s.last ? `Last stool result ${plural(s.age, 'day')} ago` : 'No stool result yet';
+    pill = `<span class="pill due"><span class="sw"></span>Stool due</span>`;
+  } else if (s.tier === 'na') {
+    why = 'Not scored'; pill = `<span class="pill na">—</span>`;
+  } else {
+    why = reasons(o, os.s, c).find(r => !GENERIC.has(r)) || `${NAME[o]} in stool: ${ab(os.s['ab_' + o])}`;
+    pill = `<span class="pill ${s.tier}"><span class="sw"></span>${TIER_LABEL[s.tier]} · ${NAME[o]}</span>`;
+  }
+  const done = S.acts[`${p.bed}-${d}`]?.done;
+  return `<button class="row ${S.sel === p.bed ? 'sel' : ''} ${done ? 'done' : ''}" data-bed="${p.bed}">
+    <span class="bed">${done ? '✓' : p.bed}</span>
+    <span class="txt"><span class="who">Bed ${p.bed}</span><span class="why">${why}</span></span>
+    <span class="side">${pill}</span></button>`;
 }
 
 // ------------------------------------------------------------------ detail
-function detail(entry, d) {
-  const el = $('detail');
-  if (!entry) { el.innerHTML = `<div class="empty">No patients on the unit on this day.</div>`; return; }
-  const [p, s] = entry, c = context(p, d);
-  const key = `${p.bed}-${d}`, act = S.acts[key] || {};
-  let h = `<div class="dhead"><span class="bed">${p.bed}</span><div><h2>Bed ${p.bed}</h2>
-    <div class="meta">${p.pid} · day ${c.hct >= 0 ? '+' : ''}${c.hct} after transplant · ${s.last ? `last stool ${s.age === 0 ? 'today' : plural(s.age, 'day') + ' ago'}` : 'no stool result yet'}</div></div></div>`;
-  for (const [day, a] of s.culture) {
-    const mine = ORGS.some(o => (o === 'ecoli' && a === 'Escherichia') || (o === 'entero' && a.startsWith('Enterococcus')));
-    h += `<div class="event ${mine ? '' : 'other'}">● Positive blood culture ${day === d ? 'today' : plural(d - day, 'day') + ' ago'}: ${agent(a)}${mine ? '' : ' (not covered by these models)'}</div>`;
-  }
-  const covered = (o, a) => (o === 'ecoli' && a === 'Escherichia') || (o === 'entero' && a.startsWith('Enterococcus'));
-  h += `<div class="orgs">${ORGS.map(o => orgHTML(p, s.org[o], o, c, d, s.culture.some(([, a]) => covered(o, a)))).join('')}</div>`;
-  const chips = [];
-  if (c.anc != null) chips.push([c.anc < 0.5, `ANC <b>${c.anc}</b> ×10³/µL${c.anc < 0.5 ? ' · neutropenic' : ''}`]);
-  if (c.tmax != null) chips.push([c.tmax >= 100.4, `Max temp <b>${c.tmax} °F</b>${c.tmax >= 100.4 ? ' · febrile' : ''}`]);
-  chips.push([false, c.abx.length ? `On <b>${c.abx.join(', ')}</b>` : 'No antibiotics today']);
-  if (s.last?.dom && s.last.dom[1] >= 0.3) chips.push([true, `Gut dominated by <b>${s.last.dom[0]}</b> (${Math.round(s.last.dom[1] * 100)}%)`]);
-  h += `<div class="sect"><h3>Context</h3><div class="chips">${chips.map(([w, t]) => `<span class="chip ${w ? 'warn' : ''}">${t}</span>`).join('')}</div></div>`;
-  const steps = nextSteps(s);
-  h += `<div class="sect"><h3>Suggested next steps</h3><div class="steps">${steps.map(t => `<div class="stepi"><span class="box"></span>${t}</div>`).join('')}</div>
-    <div class="fine">Example protocol: steps would be set by the unit. The models estimate risk; they do not recommend treatment.</div></div>`;
-  h += `<div class="actions">
-    <button class="btn ${act.ack ? 'done' : 'primary'}" id="ackBtn">${act.ack ? '✓ Reviewed' : 'Mark reviewed'}</button>
-    <button class="btn ${act.stool ? 'done' : ''}" id="stoolBtn">${act.stool ? '✓ Stool sample requested' : 'Request stool sample'}</button></div>`;
-  el.innerHTML = h;
-  $('ackBtn').onclick = () => { S.acts[key] = { ...act, ack: !act.ack }; toast(act.ack ? 'Review undone' : `Bed ${p.bed} marked reviewed (demo)`); render(); };
-  $('stoolBtn').onclick = () => { S.acts[key] = { ...act, stool: !act.stool }; toast(act.stool ? 'Request cancelled' : `Stool sample requested for Bed ${p.bed} (demo — no order placed)`); render(); };
+function detail([p, s], d) {
+  const c = context(p, d), key = `${p.bed}-${d}`, act = S.acts[key] || {};
+  const o = s.top, os = s.org[o], other = ORGS.find(x => x !== o);
+  const conf = (x) => s.culture.some(([, a]) => COVERED(x, a));
+  let h = `<div class="dhead"><div><h2>Bed ${p.bed}</h2>
+    <div class="meta">${p.pid} · day ${c.hct >= 0 ? '+' : ''}${c.hct} after transplant · ${s.last ? `stool ${s.age === 0 ? 'today' : plural(s.age, 'day') + ' ago'}` : 'no stool result yet'}</div></div></div>`;
+  for (const [day, a] of s.culture)
+    h += `<div class="event ${ORGS.some(x => COVERED(x, a)) ? '' : 'other'}">Positive blood culture ${day === d ? 'today' : plural(d - day, 'day') + ' ago'}: ${agent(a)}${ORGS.some(x => COVERED(x, a)) ? '' : ' · not covered by these models'}</div>`;
+  h += hero(p, os, o, c, d, conf(o));
+  const osO = s.org[other];
+  h += `<div class="otherline"><span>${NAME[other]}</span>${conf(other) ? '<span class="pill high"><span class="sw"></span>Confirmed BSI</span>'
+    : osO.tier === 'na' ? '<span class="pill na">not scored</span>'
+    : `<span class="pill ${osO.tier}"><span class="sw"></span>${TIER_LABEL[osO.tier]}</span><span class="v">${pct(osO.p)}</span>`}</div>`;
+  const ctx = [];
+  if (c.anc != null) ctx.push(`<span class="${c.anc < 0.5 ? 'flag' : ''}">ANC ${c.anc}${c.anc < 0.5 ? ' · neutropenic' : ''}</span>`);
+  if (c.tmax != null) ctx.push(`<span class="${c.tmax >= 100.4 ? 'flag' : ''}">${c.tmax} °F${c.tmax >= 100.4 ? ' · febrile' : ''}</span>`);
+  ctx.push(`<span>${c.abx.length ? c.abx.slice(0, 3).join(', ') + (c.abx.length > 3 ? ` +${c.abx.length - 3}` : '') : 'no antibiotics'}</span>`);
+  if (s.last?.dom && s.last.dom[1] >= 0.3) ctx.push(`<span class="flag">${s.last.dom[0]} ${Math.round(s.last.dom[1] * 100)}% of gut</span>`);
+  h += `<div class="ctx">${ctx.join('<i>·</i>')}</div>`;
+  const acts = actionsFor(s);
+  h += `<div class="actions">${acts.map(([id, label], k) => `<button class="btn ${act[id] ? 'done' : k === 0 ? 'primary' : ''}" data-act="${id}">${act[id] ? '✓ ' + label : label}</button>`).join('')}
+    <button class="btn ${act.done ? 'done' : ''}" data-act="done">${act.done ? '✓ Reviewed' : 'Mark reviewed'}</button></div>
+    <div class="fine">Actions follow an example unit protocol and are simulated. The models estimate risk; they do not recommend treatment.</div>`;
+  $('detail').innerHTML = h;
+  $('detail').querySelectorAll('[data-act]').forEach(b => b.onclick = () => {
+    const id = b.dataset.act, was = !!act[id];
+    S.acts[key] = { ...act, [id]: !was };
+    if (!was) toast(id === 'done' ? `Bed ${p.bed} reviewed` : `${b.textContent.replace('✓ ', '')} — Bed ${p.bed} (demo, nothing ordered)`);
+    render();
+  });
 }
-function orgHTML(p, os, o, c, d, confirmed) {
-  if (confirmed) return `<div class="org"><div class="ohead"><span class="oname">${NAME[o]}</span><span class="pill high"><span class="sw"></span>Confirmed BSI</span></div>
-    <div class="odds" style="margin-top:10px">Positive blood culture. Risk scoring for ${NAME[o]} is paused; the last score before the infection was <b>${pct(os.p)}</b>.</div>
-    ${os.p != null ? spark(p, o, d) : ''}</div>`;
-  if (os.tier === 'na') return `<div class="org"><div class="ohead"><span class="oname">${NAME[o]}</span><span class="pill na">Not scored</span></div>
-    <div class="muted">No scored stool sample yet.</div></div>`;
-  const t = S.W.tiers[o], tier = os.tier;
-  const rate = tier === 'due' ? null : t.rate[tier];
-  const trend = os.prev == null ? '' : os.p > os.prev * 1.15 ? `↑ from ${pct(os.prev)}` : os.p < os.prev / 1.15 ? `↓ from ${pct(os.prev)}` : 'stable';
-  const rs = reasons(o, os.s, c);
-  return `<div class="org"><div class="ohead"><span class="oname">${NAME[o]}</span><span class="pill ${tier}"><span class="sw"></span>${TIER_LABEL[tier]}</span></div>
-    <div class="big"><span class="num">${pct(os.p)}</span><span class="trend">${trend}</span></div>
-    <div class="odds">${tier === 'due' ? `From a stool sample ${plural(os.age, 'day')} old; needs a new sample.` :
-      os.after ? 'Last score before the infection; later samples are not scored.' :
-      `risk of ${NAME[o]} BSI in 14 days · in our cohort about <b>1 in ${Math.max(1, Math.round(1 / rate))}</b> stool samples at this level were followed by one`}</div>
+function hero(p, os, o, c, d, confirmed) {
+  if (confirmed) return `<div class="hero"><div class="hl"><span class="oname">${NAME[o]}</span><span class="pill high"><span class="sw"></span>Confirmed BSI</span></div>
+    <p class="say">Risk scoring for ${NAME[o]} is paused. The last score before the infection was <b>${pct(os.p)}</b>.</p>${os.p != null ? spark(p, o, d) : ''}</div>`;
+  if (os.tier === 'na') return `<div class="hero"><div class="hl"><span class="oname">No stool result yet</span><span class="pill due"><span class="sw"></span>Stool due</span></div>
+    <p class="say">Request a stool sample to start scoring.</p></div>`;
+  const tier = os.tier, rate = tier === 'due' ? null : S.W.tiers[o].rate[tier];
+  const trend = os.prev == null ? '' : os.p > os.prev * 1.15 ? `<span class="up">↑ rising</span>` : os.p < os.prev / 1.15 ? `<span class="down">↓ falling</span>` : '<span>steady</span>';
+  const rs = tier === 'low' ? [] : reasons(o, os.s, c).slice(0, 2);
+  return `<div class="hero ${tier}"><div class="hl"><span class="oname">${NAME[o]} bloodstream infection</span><span class="pill ${tier}"><span class="sw"></span>${TIER_LABEL[tier]}</span></div>
+    <div class="big"><span class="num">${pct(os.p)}</span><span class="unit">risk in the next 14 days</span>${trend}</div>
+    <p class="say">${tier === 'due' ? `Based on a stool sample ${plural(os.age, 'day')} old — a new sample is needed.`
+      : `About <b>1 in ${Math.max(1, Math.round(1 / rate))}</b> stool samples at this level were followed by ${NAME[o]} BSI within 14 days.`}</p>
     ${spark(p, o, d)}
-    ${rs.length && tier !== 'low' ? `<div class="whyh">Main factors</div><ul class="why">${rs.map(r => `<li>${r}</li>`).join('')}</ul>` : ''}</div>`;
+    ${rs.length ? `<ul class="why">${rs.map(r => `<li>${r}</li>`).join('')}</ul>` : ''}</div>`;
 }
-function nextSteps(s) {
-  if (s.culture.length) return ['Managed as a confirmed infection by the care team', 'Risk scores are paused for the infecting organism'];
-  if (s.tier === 'high') return ['Review today with the transplant ID team', 'If febrile or unstable: blood cultures per unit protocol', 'Repeat stool sample in 2–3 days to follow the trend'];
-  if (s.tier === 'watch') return ['Repeat stool sample within 3–4 days', 'Re-check when the next result is in'];
-  if (s.tier === 'due') return [s.last ? `Request a stool sample (last result ${plural(s.age, 'day')} ago)` : 'Request a first stool sample'];
-  return ['No action suggested; continue routine stool sampling'];
+function actionsFor(s) {
+  if (s.culture.length) return [];
+  if (s.tier === 'high') return [['notify', 'Notify transplant ID'], ['stool', 'Repeat stool in 2–3 days']];
+  if (s.tier === 'watch') return [['stool', 'Repeat stool in 3–4 days']];
+  if (s.tier === 'due' || s.tier === 'na') return [['stool', 'Request stool sample']];
+  return [];
 }
 function spark(p, o, d) {
   const W = 300, H = 64, L = 0, R = 6, d0 = d - 29;
