@@ -293,3 +293,6 @@ table.grid tr.row:hover { background: var(--raised); border: none; box-shadow: n
 table.grid tr.row.sel:hover { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
 @media (max-width: 600px) { table.grid tr.row { display: table-row; } }
 table.grid th { white-space: nowrap; }
+table.grid th.c-sc, table.grid td.c-sc { text-align: center; }
+.hero + .hero { margin-top: 12px; }
+.hero .hl .score { min-width: 0; }

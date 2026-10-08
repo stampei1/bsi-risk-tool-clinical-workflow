@@ -125,9 +125,7 @@ function render() {
     (nCult ? ` · <span class="hi">${plural(nCult, 'positive blood culture')} today</span>` : '');
   if (!S.sel || !st.some(([p]) => p.bed === S.sel)) S.sel = st[0]?.[0].bed ?? null;
   $('list').innerHTML = `<table class="grid"><thead><tr><th>Bed</th><th>Patient</th><th class="c-sc">E. coli</th>
-    <th class="c-sc">Enterococcus</th><th class="c-st">Last stool</th></tr></thead><tbody>${st.map(([p, s]) => rowHTML(p, s, d)).join('')}</tbody></table>
-    <div class="legend"><span><span class="score high">High</span></span><span><span class="score watch">Watch</span></span><span><span class="score low">Low</span></span>
-    <span class="lg-txt">risk of bloodstream infection in 14 days</span></div>`;
+    <th class="c-sc">Enterococcus</th></tr></thead><tbody>${st.map(([p, s]) => rowHTML(p, s, d)).join('')}</tbody></table>`;
   $('list').querySelectorAll('.row').forEach(r => {
     const pick = () => { S.sel = +r.dataset.bed; render();
       if (matchMedia('(max-width: 900px)').matches) $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
@@ -139,76 +137,37 @@ function render() {
 function cell(s, o, d) {
   const os = s.org[o];
   if (s.culture.some(([, a]) => COVERED(o, a))) return `<span class="score pos">BSI</span>`;
-  if (os.tier === 'na') return `<span class="score na">—</span>`;
-  if (os.tier === 'due') return `<span class="score due" title="last stool result ${plural(os.age, 'day')} ago">${pct(os.p)}</span>`;
-  const t = os.prev != null && os.p > os.prev * 1.15 && os.tier !== 'low' ? '<i class="ar up" title="rising">▲</i>' : '';
-  return `<span class="score ${os.tier}">${pct(os.p)}</span>${t}`;
+  if (os.tier === 'na' || os.tier === 'due') return `<span class="score na">—</span>`;
+  return `<span class="score ${os.tier}">${pct(os.p)}</span>`;
 }
 function rowHTML(p, s, d) {
-  const c = context(p, d);
-  const tag = s.culture.length ? `<span class="tag">+ blood culture</span>` : '';
-  const stool = s.age === 0 ? 'today' : `${s.age} d`;
-  return `<tr class="row ${S.sel === p.bed ? 'sel' : ''} ${s.tier === 'due' ? 'stale' : ''}" data-bed="${p.bed}" tabindex="0">
+  return `<tr class="row ${S.sel === p.bed ? 'sel' : ''}" data-bed="${p.bed}" tabindex="0">
     <td class="c-bed">${p.bed}</td>
-    <td class="c-pt"><span class="pid">${p.pid}</span><span class="hct">day ${c.hct >= 0 ? '+' : ''}${c.hct}</span>${tag}</td>
+    <td class="c-pt"><span class="pid">${p.pid}</span>${s.culture.length ? '<span class="tag">+ blood culture</span>' : ''}</td>
     <td class="c-sc">${cell(s, 'ecoli', d)}</td>
-    <td class="c-sc">${cell(s, 'entero', d)}</td>
-    <td class="c-st ${s.tier === 'due' ? 'old' : ''}">${stool}</td></tr>`;
+    <td class="c-sc">${cell(s, 'entero', d)}</td></tr>`;
 }
 
 // ------------------------------------------------------------------ detail
 function detail([p, s], d) {
-  const c = context(p, d), o = s.top, os = s.org[o], other = ORGS.find(x => x !== o);
-  const conf = (x) => s.culture.some(([, a]) => COVERED(x, a));
-  let h = `<div class="dhead"><h2>Bed ${p.bed}</h2>
-    <div class="meta">${p.pid} · day ${c.hct >= 0 ? '+' : ''}${c.hct} after transplant · stool ${s.age === 0 ? 'today' : plural(s.age, 'day') + ' ago'}</div></div>`;
+  const c = context(p, d);
+  let h = `<div class="dhead"><h2>Bed ${p.bed}</h2><div class="meta">${p.pid}</div></div>`;
   for (const [day, a] of s.culture)
-    h += `<div class="event ${ORGS.some(x => COVERED(x, a)) ? '' : 'other'}">Positive blood culture ${day === d ? 'today' : plural(d - day, 'day') + ' ago'}: ${agent(a)}</div>`;
-  h += hero(p, os, o, c, d, conf(o));
-  const osO = s.org[other];
-  h += `<div class="otherline"><span>${NAME[other]}</span>${conf(other) ? '<span class="pill high"><span class="sw"></span>Positive culture</span>'
-    : osO.tier === 'na' ? '<span class="pill na">not scored</span>'
-    : `<span class="pill ${osO.tier}"><span class="sw"></span>${TIER_LABEL[osO.tier]}</span><span class="v">${pct(osO.p)}</span>`}</div>`;
-  const ctx = [];
-  if (c.anc != null) ctx.push(`<span class="${c.anc < 0.5 ? 'flag' : ''}">ANC ${c.anc}${c.anc < 0.5 ? ' (neutropenic)' : ''}</span>`);
-  if (c.tmax != null) ctx.push(`<span class="${c.tmax >= 100.4 ? 'flag' : ''}">${c.tmax} °F</span>`);
-  if (c.abx.length) ctx.push(`<span>${c.abx.slice(0, 3).join(', ')}${c.abx.length > 3 ? ` +${c.abx.length - 3}` : ''}</span>`);
-  h += `<div class="ctx">${ctx.join('<i>·</i>')}</div>`;
+    h += `<div class="event">Positive blood culture ${day === d ? 'today' : plural(d - day, 'day') + ' ago'}: ${agent(a)}</div>`;
+  const shown = ORGS.filter(o => ['high', 'watch'].includes(s.org[o].tier) && !s.culture.some(([, a]) => COVERED(o, a)))
+    .sort((a, b) => RANK[s.org[b].tier] - RANK[s.org[a].tier]);
+  if (shown.length) h += shown.map(o => hero(s.org[o], o, c)).join('');
+  else if (!s.culture.length) h += `<div class="hero"><p class="say">${s.tier === 'due' ? `No stool result in the last ${STALE} days.` : 'Low risk for E. coli and Enterococcus.'}</p></div>`;
   $('detail').innerHTML = h;
 }
-function hero(p, os, o, c, d, confirmed) {
-  if (confirmed) return `<div class="hero"><div class="hl"><span class="oname">${NAME[o]}</span><span class="pill high"><span class="sw"></span>Positive culture</span></div>
-    <p class="say">Last score before the infection: <b>${pct(os.p)}</b>.</p>${os.p != null ? spark(p, o, d) : ''}</div>`;
-  if (os.tier === 'na') return `<div class="hero"><div class="hl"><span class="oname">${NAME[o]}</span><span class="pill na">Not scored</span></div>
-    <p class="say">Samples after an infection with this organism are not scored.</p></div>`;
-  const tier = os.tier, rate = tier === 'due' ? null : S.W.tiers[o].rate[tier];
-  const trend = os.prev == null ? '' : os.p > os.prev * 1.15 ? `<span class="up">↑ rising</span>` : os.p < os.prev / 1.15 ? `<span class="down">↓ falling</span>` : '';
-  const rs = tier === 'low' || tier === 'due' ? [] : reasons(o, os.s, c).slice(0, 2);
-  return `<div class="hero ${tier}"><div class="hl"><span class="oname">${NAME[o]}</span><span class="pill ${tier}"><span class="sw"></span>${TIER_LABEL[tier]}</span></div>
-    <div class="big"><span class="num">${pct(os.p)}</span><span class="unit">risk of bloodstream infection in 14 days</span>${trend}</div>
-    <p class="say">${tier === 'due' ? `From a stool sample ${plural(os.age, 'day')} old.`
-      : `About <b>1 in ${Math.max(1, Math.round(1 / rate))}</b> stool samples at this level were followed by one.`}</p>
-    ${spark(p, o, d)}
+function hero(os, o, c) {
+  const rate = S.W.tiers[o].rate[os.tier];
+  const rs = reasons(o, os.s, c).slice(0, 2);
+  return `<div class="hero ${os.tier}"><div class="hl"><span class="oname">${NAME[o]}</span><span class="score ${os.tier}">${TIER_LABEL[os.tier]}</span></div>
+    <div class="big"><span class="num">${pct(os.p)}</span><span class="unit">risk of bloodstream infection in 14 days</span></div>
+    <p class="say">About <b>1 in ${Math.max(1, Math.round(1 / rate))}</b> stool samples at this level were followed by one.</p>
     ${rs.length ? `<ul class="why">${rs.map(r => `<li>${r}</li>`).join('')}</ul>` : ''}</div>`;
 }
-function spark(p, o, d) {
-  const W = 300, H = 64, L = 0, R = 6, d0 = d - 29;
-  const lo = Math.log10(0.001), hi = Math.log10(0.5);
-  const x = (day) => L + (day - d0) / 29 * (W - L - R), y = (v) => H - 4 - (Math.log10(Math.max(0.001, Math.min(0.5, v))) - lo) / (hi - lo) * (H - 8);
-  const t = S.W.tiers[o];
-  const pts = p.samples.filter(s => s['p_' + o] != null && s.d <= d && s.d >= d0 - 30);
-  let path = '';
-  pts.forEach((s, i) => { const X = Math.max(L, x(s.d)), Y = y(s['p_' + o]); path += i ? `H${X}V${Y}` : `M${X},${Y}`; });
-  if (pts.length) path += `H${x(d)}`;
-  const dots = pts.filter(s => s.d >= d0).map(s => `<circle cx="${x(s.d)}" cy="${y(s['p_' + o])}" r="2.6" fill="var(--spark)"/>`).join('');
-  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${NAME[o]} risk, last 30 days">
-    <rect x="0" y="0" width="${W}" height="${y(t.high)}" fill="var(--high-band)"/>
-    <rect x="0" y="${y(t.high)}" width="${W}" height="${y(t.watch) - y(t.high)}" fill="var(--watch-band)"/>
-    <path d="${path}" fill="none" stroke="var(--spark)" stroke-width="1.8" vector-effect="non-scaling-stroke"/>${dots}
-    <line x1="${x(d)}" x2="${x(d)}" y1="0" y2="${H}" stroke="var(--ink-3)" stroke-width="1" vector-effect="non-scaling-stroke" stroke-dasharray="2 3"/>
-  </svg><div class="fine" style="display:flex;justify-content:space-between;margin-top:2px"><span>30 days ago</span><span>today</span></div>`;
-}
-
 // ------------------------------------------------------------------ misc
 function tierTable() {
   const T = S.W.tiers, oneIn = (r) => `1 in ${Math.round(1 / r)}`;
