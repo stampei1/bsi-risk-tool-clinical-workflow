@@ -296,3 +296,9 @@ table.grid th { white-space: nowrap; }
 table.grid th.c-sc, table.grid td.c-sc { text-align: center; }
 .hero + .hero { margin-top: 12px; }
 .hero .hl .score { min-width: 0; }
+table.grid th.c-num, table.grid td.c-num { text-align: right; width: 72px; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.fever { color: var(--high); font-weight: 700; }
+td .na { color: var(--ink-3); }
+@media (max-width: 600px) { .c-pt .pid { font-size: 13px; } table.grid th.c-num, table.grid td.c-num { width: auto; } .c-pt .tag { display: none; } }
+.short { display: none; }
+@media (max-width: 600px) { .c-pt { display: none; } .long { display: none; } .short { display: inline; } .score { min-width: 48px; padding: 3px 6px; } }

@@ -124,8 +124,8 @@ function render() {
   $('summary').innerHTML = `<b>${plural(st.length, 'patient')}</b> · <span class="${nHigh ? 'hi' : ''}">${nHigh} high risk</span>` +
     (nCult ? ` · <span class="hi">${plural(nCult, 'positive blood culture')} today</span>` : '');
   if (!S.sel || !st.some(([p]) => p.bed === S.sel)) S.sel = st[0]?.[0].bed ?? null;
-  $('list').innerHTML = `<table class="grid"><thead><tr><th>Bed</th><th>Patient</th><th class="c-sc">E. coli</th>
-    <th class="c-sc">Enterococcus</th></tr></thead><tbody>${st.map(([p, s]) => rowHTML(p, s, d)).join('')}</tbody></table>`;
+  $('list').innerHTML = `<table class="grid"><thead><tr><th>Bed</th><th class="c-pt">Patient</th><th class="c-num" title="Day relative to transplant">HCT day</th><th class="c-num" title="Maximum temperature, last 24 h (°F)">Temp</th><th class="c-sc">E. coli</th>
+    <th class="c-sc"><span class="long">Enterococcus</span><span class="short">Entero.</span></th></tr></thead><tbody>${st.map(([p, s]) => rowHTML(p, s, d)).join('')}</tbody></table>`;
   $('list').querySelectorAll('.row').forEach(r => {
     const pick = () => { S.sel = +r.dataset.bed; render();
       if (matchMedia('(max-width: 900px)').matches) $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
@@ -140,10 +140,15 @@ function cell(s, o, d) {
   if (os.tier === 'na' || os.tier === 'due') return `<span class="score na">—</span>`;
   return `<span class="score ${os.tier}">${pct(os.p)}</span>`;
 }
+const dayTxt = (h) => `${h >= 0 ? '+' : ''}${h}`;
+const tempTxt = (t) => t == null ? '<span class="na">—</span>' : `<span class="${t >= 100.4 ? 'fever' : ''}">${t.toFixed(1)}°</span>`;
 function rowHTML(p, s, d) {
+  const c = context(p, d);
   return `<tr class="row ${S.sel === p.bed ? 'sel' : ''}" data-bed="${p.bed}" tabindex="0">
     <td class="c-bed">${p.bed}</td>
     <td class="c-pt"><span class="pid">${p.pid}</span>${s.culture.length ? '<span class="tag">+ blood culture</span>' : ''}</td>
+    <td class="c-num">${dayTxt(c.hct)}</td>
+    <td class="c-num">${tempTxt(c.tmax)}</td>
     <td class="c-sc">${cell(s, 'ecoli', d)}</td>
     <td class="c-sc">${cell(s, 'entero', d)}</td></tr>`;
 }
@@ -151,7 +156,7 @@ function rowHTML(p, s, d) {
 // ------------------------------------------------------------------ detail
 function detail([p, s], d) {
   const c = context(p, d);
-  let h = `<div class="dhead"><h2>Bed ${p.bed}</h2><div class="meta">${p.pid}</div></div>`;
+  let h = `<div class="dhead"><h2>Bed ${p.bed}</h2><div class="meta">${p.pid} · day ${dayTxt(c.hct)} after transplant${c.tmax != null ? ` · ${tempTxt(c.tmax)}F` : ''}</div></div>`;
   for (const [day, a] of s.culture)
     h += `<div class="event">Positive blood culture ${day === d ? 'today' : plural(d - day, 'day') + ' ago'}: ${agent(a)}</div>`;
   const shown = ORGS.filter(o => ['high', 'watch'].includes(s.org[o].tier) && !s.culture.some(([, a]) => COVERED(o, a)))
