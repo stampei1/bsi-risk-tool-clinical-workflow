@@ -4,68 +4,56 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<meta name="build" content="20261008153406">
+<meta name="build" content="20261008160906">
 <title>BSI Watch</title>
-<meta name="description" content="Demo: a daily, agent-prepared bloodstream-infection risk brief for an allo-HCT unit.">
+<meta name="description" content="Demo: bloodstream-infection risk from stool microbiome for an allo-HCT unit.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261008153406">
+<link rel="stylesheet" href="style.css?v=20261008160906">
 </head>
 <body>
 <header class="top">
   <div class="brand">
     <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M8 17h4l2-6 4 12 2-6h4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <div>
-      <div class="name">BSI Watch</div>
-      <div class="unit">Simulated BMT unit</div>
-    </div>
+    <div class="name">BSI Watch</div>
   </div>
-  <div class="daynav" role="group" aria-label="Simulated day">
+  <div class="daynav" role="group" aria-label="Day">
     <button id="prevDay" class="icon" aria-label="Previous day">‹</button>
-    <div class="day"><span class="lbl">Unit day</span><span id="dayNum">—</span></div>
+    <div class="day"><span class="lbl">Day</span><span id="dayNum">—</span></div>
     <button id="nextDay" class="icon" aria-label="Next day">›</button>
   </div>
   <div class="tools">
-    <button id="howBtn" class="link">How it works</button>
+    <button id="aboutBtn" class="link">About</button>
     <button id="themeBtn" class="icon" aria-label="Toggle dark mode">◐</button>
   </div>
 </header>
 
 <main class="layout">
   <section class="left">
-    <article id="brief" class="brief"></article>
-    <div id="list"></div>
+    <p id="summary" class="summary"></p>
+    <div id="list" class="card-table"></div>
   </section>
   <section class="right">
     <article id="detail" class="detail"></article>
   </section>
 </main>
 
-<footer class="foot">Demo with retrospective, de-identified MSK allo-HCT data on a simulated unit · research prototype, not for clinical use</footer>
+<footer class="foot">Demo with retrospective, de-identified MSK allo-HCT data on a simulated unit · not for clinical use</footer>
 
-<div id="toast" class="toast" role="status" aria-live="polite"></div>
-
-<div id="how" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="howTitle">
+<div id="about" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
   <div class="sheet">
-    <button class="icon close" id="howClose" aria-label="Close">×</button>
-    <h2 id="howTitle">How it works</h2>
-    <p class="lead">An agent with EHR access does the legwork every morning. The care team sees one short brief and only the patients who need a look.</p>
-    <ol class="pipeline">
-      <li><span class="step">1</span><div><b>Gather</b><p>Pulls new stool 16S results, antibiotic administrations, blood counts, vitals and microbiology for every patient on the unit.</p></div></li>
-      <li><span class="step">2</span><div><b>Score</b><p>Runs two models on each new stool sample: risk of an <i>E. coli</i> and of an <i>Enterococcus</i> bloodstream infection in the next 14 days.</p></div></li>
-      <li><span class="step">3</span><div><b>Triage</b><p>Sorts patients into High, Watch and Low, and flags anyone whose stool result is out of date.</p></div></li>
-      <li><span class="step">4</span><div><b>Brief</b><p>Writes a two-line summary of what changed since yesterday and suggests next steps from the unit's protocol. Clinicians acknowledge or act.</p></div></li>
-    </ol>
-    <h3>Data the agent pulls</h3>
-    <div class="srcs"><span class="src">Stool 16S results</span><span class="src">Antibiotic administrations (MAR)</span><span class="src">Blood counts (ANC)</span><span class="src">Vitals</span><span class="src">Microbiology</span><span class="src">Transplant date</span></div>
-    <h3>What the tiers mean</h3>
+    <button class="icon close" id="aboutClose" aria-label="Close">×</button>
+    <h2 id="aboutTitle">About</h2>
+    <p class="lead">Each new stool sample gives two scores: the risk of an <i>E. coli</i> and of an <i>Enterococcus</i>
+      bloodstream infection in the next 14 days. Patients are sorted so the highest risk is on top.</p>
     <div id="tierTable"></div>
-    <p class="fine">Tiers are set on the retrospective MSK cohort: High = top 10% of stool-sample risk scores, Watch = next 20%. Rates are the share of samples
-      in that tier followed by that infection within 14 days. Scores come from models that never saw the patient shown (cross-validation); the
-      cut-offs and suggested steps are illustrative, not validated. Patients and bed numbers are real de-identified timelines placed on a simulated unit.</p>
+    <p class="fine">Tiers and rates come from the retrospective MSK allo-HCT cohort: High = top 10% of stool-sample scores, Watch = next 20%.
+      Rates are the share of stool samples in each tier that were followed by that infection within 14 days. Scores come from models that never
+      saw the patient shown (cross-validation); the cut-offs were chosen on the same cohort and have not been validated prospectively.
+      Patients are real de-identified timelines placed together on a simulated unit; bed numbers are made up.</p>
   </div>
 </div>
-<script src="app.js?v=20261008153406"></script>
+<script src="app.js?v=20261008160906"></script>
 </body>
 </html>

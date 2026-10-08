@@ -1,16 +1,19 @@
 'use strict';
-// BSI Watch — the daily, agent-prepared view of a simulated allo-HCT unit.
+// BSI Watch — one list of the patients on a (simulated) allo-HCT unit, highest risk first.
 const ORGS = ['ecoli', 'entero'];
 const NAME = { ecoli: 'E. coli', entero: 'Enterococcus' };
 const STALE = 7;                         // a stool result older than this many days no longer counts
 const RANK = { high: 3, watch: 2, low: 1, due: 0, na: -1 };
-const TIER_LABEL = { high: 'High', watch: 'Watch', low: 'Low', due: 'Stool due', na: 'Not scored' };
-const S = { W: null, day: 24, sel: null, acts: {} };
+const TIER_LABEL = { high: 'High', watch: 'Watch', low: 'Low', due: 'No recent stool', na: 'Not scored' };
+const S = { W: null, day: 24, sel: null };
 const $ = (id) => document.getElementById(id);
 const pct = (v, d) => v == null ? '—' : (v * 100).toFixed(d ?? (v < 0.01 ? 2 : 1)) + '%';
 const ab = (v) => v == null ? '—' : v === 0 ? 'not detected' : v < 0.001 ? '<0.1%' : (v * 100).toFixed(v < 0.1 ? 1 : 0) + '%';
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const BUILD = document.querySelector('meta[name="build"]')?.content || '';
+const COVERED = (o, a) => (o === 'ecoli' && a === 'Escherichia') || (o === 'entero' && a.startsWith('Enterococcus'));
+const agent = (a) => ({ Escherichia: 'E. coli', Enterococcus_Faecium_Vancomycin_Resistant: 'VRE', Enterococcus_Faecium: 'E. faecium',
+  Enterococcus_Faecalis: 'E. faecalis', Enterococcus_Vancomycin_Resistant: 'VRE', Klebsiella_Pneumoniae: 'K. pneumoniae' })[a] || a.replace(/_/g, ' ');
 
 async function init() {
   try { const t = localStorage.getItem('bsiw-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
@@ -21,11 +24,11 @@ async function init() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowLeft') go(-1);
     if (e.key === 'ArrowRight') go(1);
-    if (e.key === 'Escape') $('how').classList.add('hidden');
+    if (e.key === 'Escape') $('about').classList.add('hidden');
   });
-  $('howBtn').onclick = () => $('how').classList.remove('hidden');
-  $('howClose').onclick = () => $('how').classList.add('hidden');
-  $('how').onclick = (e) => { if (e.target.id === 'how') $('how').classList.add('hidden'); };
+  $('aboutBtn').onclick = () => $('about').classList.remove('hidden');
+  $('aboutClose').onclick = () => $('about').classList.add('hidden');
+  $('about').onclick = (e) => { if (e.target.id === 'about') $('about').classList.add('hidden'); };
   $('themeBtn').onclick = () => {
     const dark = document.documentElement.dataset.theme === 'dark' ||
       (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
@@ -104,136 +107,89 @@ function reasons(o, s, c) {
   return out;
 }
 
-// ------------------------------------------------------------------ brief
-function agent(a) {
-  return ({ Escherichia: 'E. coli', Enterococcus_Faecium_Vancomycin_Resistant: 'VRE', Enterococcus_Faecium: 'E. faecium',
-    Enterococcus_Faecalis: 'E. faecalis', Enterococcus_Vancomycin_Resistant: 'VRE', Klebsiella_Pneumoniae: 'K. pneumoniae' })[a] || a.replace(/_/g, ' ');
-}
-const COVERED = (o, a) => (o === 'ecoli' && a === 'Escherichia') || (o === 'entero' && a.startsWith('Enterococcus'));
-function brief(d, st) {
-  const act = st.filter(([, s]) => s.need);
-  const up = st.filter(([, s, y]) => s.tier === 'high' && y.tier !== 'high' && !s.culture.length);
-  const cultures = st.filter(([p]) => p.infections.some(([day]) => day === d));
-  const head = act.length ? `${plural(act.length, 'patient')} need${act.length === 1 ? 's' : ''} attention today` : 'All clear today';
-  const lines = [];
-  if (up.length) lines.push(`New to High risk: ${up.map(([p, s]) => `Bed ${p.bed} (${NAME[s.top]})`).join(', ')}`);
-  if (cultures.length) lines.push(`Positive blood culture: ${cultures.map(([p]) => `Bed ${p.bed} (${agent(p.infections.find(([day]) => day === d)[1])})`).join(', ')}`);
-  if (!lines.length) lines.push(act.length ? 'No changes since yesterday' : `${st.length} patients on the unit, none at high risk`);
-  $('brief').innerHTML = `<div class="kicker"><span class="dot"></span>Morning brief · prepared by the agent</div>
-    <h1>${head}</h1><p class="sub">${lines.join(' · ')}</p>`;
-}
-
 // ------------------------------------------------------------------ list
+function priority(s, d) {
+  if (s.culture.some(([day]) => day === d)) return 0;      // positive blood culture today
+  if (s.culture.length) return 5;                           // earlier this week: already known
+  return { high: 1, watch: 2, due: 3, low: 4, na: 4 }[s.tier];
+}
 function render() {
   const d = S.day;
   $('dayNum').textContent = d;
   $('prevDay').disabled = d <= S.W.span[0]; $('nextDay').disabled = d >= S.W.span[1];
-  const on = S.W.patients.filter(p => p.stay[0] <= d && d <= p.stay[1]);
-  const st = on.map(p => { const s = status(p, d); s.need = needs(s, d); return [p, s, status(p, d - 1)]; });
-  brief(d, st);
-  const order = (x) => x.culture.some(([day]) => day === d) ? 0 : x.tier === 'high' ? 1 : x.tier === 'due' ? 2 : 3;
-  const act = st.filter(([, s]) => s.need).sort((a, b) => order(a[1]) - order(b[1]) || (b[1].org[b[1].top].p || 0) - (a[1].org[a[1].top].p || 0));
-  const rest = st.filter(([, s]) => !s.need);
-  if (!S.sel || !st.some(([p]) => p.bed === S.sel)) S.sel = act[0]?.[0].bed ?? null;
-  const counts = ['watch', 'low'].map(t => [t, rest.filter(([, s]) => s.tier === t || (t === 'low' && (s.tier === 'na' || s.culture.length))).length]);
-  let h = act.length ? `<div class="rows">${act.map(([p, s]) => rowHTML(p, s, d)).join('')}</div>`
-    : `<div class="clear"><div class="check">✓</div><b>No one needs review</b><span>Every patient is low risk or on watch, with a recent stool result.</span></div>`;
-  if (rest.length) {
-    h += `<button class="others" id="othersBtn"><span>${plural(rest.length, 'other patient')}</span>
-      <span class="mini">${counts.filter(([, n]) => n).map(([t, n]) => `<span class="pill ${t}"><span class="sw"></span>${n} ${t === 'low' ? 'low risk' : 'watch'}</span>`).join('')}</span>
-      <span class="chev">${S.othersOpen ? 'Hide' : 'Show'}</span></button>`;
-    if (S.othersOpen) h += `<div class="rows quiet">${rest.map(([p, s]) => rowHTML(p, s, d)).join('')}</div>`;
-  }
-  $('list').innerHTML = h;
-  $('list').querySelectorAll('.row').forEach(r => r.onclick = () => {
-    S.sel = +r.dataset.bed; render();
-    if (matchMedia('(max-width: 900px)').matches) $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const st = S.W.patients.filter(p => p.stay[0] <= d && d <= p.stay[1]).map(p => [p, status(p, d)])
+    .sort((a, b) => priority(a[1], d) - priority(b[1], d) || (b[1].org[b[1].top].p || 0) - (a[1].org[a[1].top].p || 0));
+  const nHigh = st.filter(([, s]) => s.tier === 'high' && !s.culture.length).length;
+  const nCult = st.filter(([p]) => p.infections.some(([day]) => day === d)).length;
+  $('summary').innerHTML = `<b>${plural(st.length, 'patient')}</b> · <span class="${nHigh ? 'hi' : ''}">${nHigh} high risk</span>` +
+    (nCult ? ` · <span class="hi">${plural(nCult, 'positive blood culture')} today</span>` : '');
+  if (!S.sel || !st.some(([p]) => p.bed === S.sel)) S.sel = st[0]?.[0].bed ?? null;
+  $('list').innerHTML = `<table class="grid"><thead><tr><th>Bed</th><th>Patient</th><th class="c-sc">E. coli</th>
+    <th class="c-sc">Enterococcus</th><th class="c-st">Last stool</th></tr></thead><tbody>${st.map(([p, s]) => rowHTML(p, s, d)).join('')}</tbody></table>
+    <div class="legend"><span><span class="score high">High</span></span><span><span class="score watch">Watch</span></span><span><span class="score low">Low</span></span>
+    <span class="lg-txt">risk of bloodstream infection in 14 days</span></div>`;
+  $('list').querySelectorAll('.row').forEach(r => {
+    const pick = () => { S.sel = +r.dataset.bed; render();
+      if (matchMedia('(max-width: 900px)').matches) $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+    r.onclick = pick; r.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } };
   });
-  const ob = $('othersBtn'); if (ob) ob.onclick = () => { S.othersOpen = !S.othersOpen; render(); };
   const sel = st.find(([p]) => p.bed === S.sel);
-  sel ? detail(sel, d) : ($('detail').innerHTML = `<div class="empty">Select a patient</div>`);
+  if (sel) detail(sel, d);
 }
-function needs(s, d) {
-  if (s.culture.some(([day]) => day === d)) return true;        // new positive culture today
-  if (s.culture.length) return false;                            // already known; managed by the team
-  return s.tier === 'high' || s.tier === 'due';
+function cell(s, o, d) {
+  const os = s.org[o];
+  if (s.culture.some(([, a]) => COVERED(o, a))) return `<span class="score pos">BSI</span>`;
+  if (os.tier === 'na') return `<span class="score na">—</span>`;
+  if (os.tier === 'due') return `<span class="score due" title="last stool result ${plural(os.age, 'day')} ago">${pct(os.p)}</span>`;
+  const t = os.prev != null && os.p > os.prev * 1.15 && os.tier !== 'low' ? '<i class="ar up" title="rising">▲</i>' : '';
+  return `<span class="score ${os.tier}">${pct(os.p)}</span>${t}`;
 }
 function rowHTML(p, s, d) {
-  const c = context(p, d), o = s.top, os = s.org[o];
-  let why, pill;
-  if (s.culture.length) {
-    const [day, a] = s.culture[s.culture.length - 1];
-    why = `${agent(a)} in blood culture ${day === d ? 'today' : plural(d - day, 'day') + ' ago'}`;
-    pill = `<span class="pill high"><span class="sw"></span>Positive culture</span>`;
-  } else if (s.tier === 'due') {
-    why = s.last ? `Last stool result ${plural(s.age, 'day')} ago` : 'No stool result yet';
-    pill = `<span class="pill due"><span class="sw"></span>Stool due</span>`;
-  } else if (s.tier === 'na') {
-    why = 'Not scored'; pill = `<span class="pill na">—</span>`;
-  } else {
-    why = reasons(o, os.s, c).find(r => !GENERIC.has(r)) || `${NAME[o]} in stool: ${ab(os.s['ab_' + o])}`;
-    pill = `<span class="pill ${s.tier}"><span class="sw"></span>${TIER_LABEL[s.tier]} · ${NAME[o]}</span>`;
-  }
-  const done = S.acts[`${p.bed}-${d}`]?.done;
-  return `<button class="row ${S.sel === p.bed ? 'sel' : ''} ${done ? 'done' : ''}" data-bed="${p.bed}">
-    <span class="bed">${done ? '✓' : p.bed}</span>
-    <span class="txt"><span class="who">Bed ${p.bed}</span><span class="why">${why}</span></span>
-    <span class="side">${pill}</span></button>`;
+  const c = context(p, d);
+  const tag = s.culture.length ? `<span class="tag">+ blood culture</span>` : '';
+  const stool = s.age === 0 ? 'today' : `${s.age} d`;
+  return `<tr class="row ${S.sel === p.bed ? 'sel' : ''} ${s.tier === 'due' ? 'stale' : ''}" data-bed="${p.bed}" tabindex="0">
+    <td class="c-bed">${p.bed}</td>
+    <td class="c-pt"><span class="pid">${p.pid}</span><span class="hct">day ${c.hct >= 0 ? '+' : ''}${c.hct}</span>${tag}</td>
+    <td class="c-sc">${cell(s, 'ecoli', d)}</td>
+    <td class="c-sc">${cell(s, 'entero', d)}</td>
+    <td class="c-st ${s.tier === 'due' ? 'old' : ''}">${stool}</td></tr>`;
 }
 
 // ------------------------------------------------------------------ detail
 function detail([p, s], d) {
-  const c = context(p, d), key = `${p.bed}-${d}`, act = S.acts[key] || {};
-  const o = s.top, os = s.org[o], other = ORGS.find(x => x !== o);
+  const c = context(p, d), o = s.top, os = s.org[o], other = ORGS.find(x => x !== o);
   const conf = (x) => s.culture.some(([, a]) => COVERED(x, a));
-  let h = `<div class="dhead"><div><h2>Bed ${p.bed}</h2>
-    <div class="meta">${p.pid} · day ${c.hct >= 0 ? '+' : ''}${c.hct} after transplant · ${s.last ? `stool ${s.age === 0 ? 'today' : plural(s.age, 'day') + ' ago'}` : 'no stool result yet'}</div></div></div>`;
+  let h = `<div class="dhead"><h2>Bed ${p.bed}</h2>
+    <div class="meta">${p.pid} · day ${c.hct >= 0 ? '+' : ''}${c.hct} after transplant · stool ${s.age === 0 ? 'today' : plural(s.age, 'day') + ' ago'}</div></div>`;
   for (const [day, a] of s.culture)
-    h += `<div class="event ${ORGS.some(x => COVERED(x, a)) ? '' : 'other'}">Positive blood culture ${day === d ? 'today' : plural(d - day, 'day') + ' ago'}: ${agent(a)}${ORGS.some(x => COVERED(x, a)) ? '' : ' · not covered by these models'}</div>`;
+    h += `<div class="event ${ORGS.some(x => COVERED(x, a)) ? '' : 'other'}">Positive blood culture ${day === d ? 'today' : plural(d - day, 'day') + ' ago'}: ${agent(a)}</div>`;
   h += hero(p, os, o, c, d, conf(o));
   const osO = s.org[other];
-  h += `<div class="otherline"><span>${NAME[other]}</span>${conf(other) ? '<span class="pill high"><span class="sw"></span>Confirmed BSI</span>'
+  h += `<div class="otherline"><span>${NAME[other]}</span>${conf(other) ? '<span class="pill high"><span class="sw"></span>Positive culture</span>'
     : osO.tier === 'na' ? '<span class="pill na">not scored</span>'
     : `<span class="pill ${osO.tier}"><span class="sw"></span>${TIER_LABEL[osO.tier]}</span><span class="v">${pct(osO.p)}</span>`}</div>`;
   const ctx = [];
-  if (c.anc != null) ctx.push(`<span class="${c.anc < 0.5 ? 'flag' : ''}">ANC ${c.anc}${c.anc < 0.5 ? ' · neutropenic' : ''}</span>`);
-  if (c.tmax != null) ctx.push(`<span class="${c.tmax >= 100.4 ? 'flag' : ''}">${c.tmax} °F${c.tmax >= 100.4 ? ' · febrile' : ''}</span>`);
-  ctx.push(`<span>${c.abx.length ? c.abx.slice(0, 3).join(', ') + (c.abx.length > 3 ? ` +${c.abx.length - 3}` : '') : 'no antibiotics'}</span>`);
-  if (s.last?.dom && s.last.dom[1] >= 0.3) ctx.push(`<span class="flag">${s.last.dom[0]} ${Math.round(s.last.dom[1] * 100)}% of gut</span>`);
+  if (c.anc != null) ctx.push(`<span class="${c.anc < 0.5 ? 'flag' : ''}">ANC ${c.anc}${c.anc < 0.5 ? ' (neutropenic)' : ''}</span>`);
+  if (c.tmax != null) ctx.push(`<span class="${c.tmax >= 100.4 ? 'flag' : ''}">${c.tmax} °F</span>`);
+  if (c.abx.length) ctx.push(`<span>${c.abx.slice(0, 3).join(', ')}${c.abx.length > 3 ? ` +${c.abx.length - 3}` : ''}</span>`);
   h += `<div class="ctx">${ctx.join('<i>·</i>')}</div>`;
-  const acts = actionsFor(s);
-  h += `<div class="actions">${acts.map(([id, label], k) => `<button class="btn ${act[id] ? 'done' : k === 0 ? 'primary' : ''}" data-act="${id}">${act[id] ? '✓ ' + label : label}</button>`).join('')}
-    <button class="btn ${act.done ? 'done' : ''}" data-act="done">${act.done ? '✓ Reviewed' : 'Mark reviewed'}</button></div>
-    <div class="fine">Actions follow an example unit protocol and are simulated. The models estimate risk; they do not recommend treatment.</div>`;
   $('detail').innerHTML = h;
-  $('detail').querySelectorAll('[data-act]').forEach(b => b.onclick = () => {
-    const id = b.dataset.act, was = !!act[id];
-    S.acts[key] = { ...act, [id]: !was };
-    if (!was) toast(id === 'done' ? `Bed ${p.bed} reviewed` : `${b.textContent.replace('✓ ', '')} — Bed ${p.bed} (demo, nothing ordered)`);
-    render();
-  });
 }
 function hero(p, os, o, c, d, confirmed) {
-  if (confirmed) return `<div class="hero"><div class="hl"><span class="oname">${NAME[o]}</span><span class="pill high"><span class="sw"></span>Confirmed BSI</span></div>
-    <p class="say">Risk scoring for ${NAME[o]} is paused. The last score before the infection was <b>${pct(os.p)}</b>.</p>${os.p != null ? spark(p, o, d) : ''}</div>`;
-  if (os.tier === 'na') return `<div class="hero"><div class="hl"><span class="oname">No stool result yet</span><span class="pill due"><span class="sw"></span>Stool due</span></div>
-    <p class="say">Request a stool sample to start scoring.</p></div>`;
+  if (confirmed) return `<div class="hero"><div class="hl"><span class="oname">${NAME[o]}</span><span class="pill high"><span class="sw"></span>Positive culture</span></div>
+    <p class="say">Last score before the infection: <b>${pct(os.p)}</b>.</p>${os.p != null ? spark(p, o, d) : ''}</div>`;
+  if (os.tier === 'na') return `<div class="hero"><div class="hl"><span class="oname">${NAME[o]}</span><span class="pill na">Not scored</span></div>
+    <p class="say">Samples after an infection with this organism are not scored.</p></div>`;
   const tier = os.tier, rate = tier === 'due' ? null : S.W.tiers[o].rate[tier];
-  const trend = os.prev == null ? '' : os.p > os.prev * 1.15 ? `<span class="up">↑ rising</span>` : os.p < os.prev / 1.15 ? `<span class="down">↓ falling</span>` : '<span>steady</span>';
-  const rs = tier === 'low' ? [] : reasons(o, os.s, c).slice(0, 2);
-  return `<div class="hero ${tier}"><div class="hl"><span class="oname">${NAME[o]} bloodstream infection</span><span class="pill ${tier}"><span class="sw"></span>${TIER_LABEL[tier]}</span></div>
-    <div class="big"><span class="num">${pct(os.p)}</span><span class="unit">risk in the next 14 days</span>${trend}</div>
-    <p class="say">${tier === 'due' ? `Based on a stool sample ${plural(os.age, 'day')} old — a new sample is needed.`
-      : `About <b>1 in ${Math.max(1, Math.round(1 / rate))}</b> stool samples at this level were followed by ${NAME[o]} BSI within 14 days.`}</p>
+  const trend = os.prev == null ? '' : os.p > os.prev * 1.15 ? `<span class="up">↑ rising</span>` : os.p < os.prev / 1.15 ? `<span class="down">↓ falling</span>` : '';
+  const rs = tier === 'low' || tier === 'due' ? [] : reasons(o, os.s, c).slice(0, 2);
+  return `<div class="hero ${tier}"><div class="hl"><span class="oname">${NAME[o]}</span><span class="pill ${tier}"><span class="sw"></span>${TIER_LABEL[tier]}</span></div>
+    <div class="big"><span class="num">${pct(os.p)}</span><span class="unit">risk of bloodstream infection in 14 days</span>${trend}</div>
+    <p class="say">${tier === 'due' ? `From a stool sample ${plural(os.age, 'day')} old.`
+      : `About <b>1 in ${Math.max(1, Math.round(1 / rate))}</b> stool samples at this level were followed by one.`}</p>
     ${spark(p, o, d)}
     ${rs.length ? `<ul class="why">${rs.map(r => `<li>${r}</li>`).join('')}</ul>` : ''}</div>`;
-}
-function actionsFor(s) {
-  if (s.culture.length) return [];
-  if (s.tier === 'high') return [['notify', 'Notify transplant ID'], ['stool', 'Repeat stool in 2–3 days']];
-  if (s.tier === 'watch') return [['stool', 'Repeat stool in 3–4 days']];
-  if (s.tier === 'due' || s.tier === 'na') return [['stool', 'Request stool sample']];
-  return [];
 }
 function spark(p, o, d) {
   const W = 300, H = 64, L = 0, R = 6, d0 = d - 29;
@@ -257,12 +213,9 @@ function spark(p, o, d) {
 function tierTable() {
   const T = S.W.tiers, oneIn = (r) => `1 in ${Math.round(1 / r)}`;
   $('tierTable').innerHTML = `<table class="tiers"><thead><tr><th>Tier</th><th>Share of samples</th><th>E. coli BSI ≤ 14 d</th><th>Enterococcus BSI ≤ 14 d</th></tr></thead><tbody>
-    <tr><td><span class="pill high"><span class="sw"></span>High</span></td><td>top 10%</td><td>${oneIn(T.ecoli.rate.high)}</td><td>${oneIn(T.entero.rate.high)}</td></tr>
-    <tr><td><span class="pill watch"><span class="sw"></span>Watch</span></td><td>next 20%</td><td>${oneIn(T.ecoli.rate.watch)}</td><td>${oneIn(T.entero.rate.watch)}</td></tr>
-    <tr><td><span class="pill low"><span class="sw"></span>Low</span></td><td>remaining 70%</td><td>${oneIn(T.ecoli.rate.low)}</td><td>${oneIn(T.entero.rate.low)}</td></tr>
+    <tr><td><span class="score high">High</span></td><td>top 10%</td><td>${oneIn(T.ecoli.rate.high)}</td><td>${oneIn(T.entero.rate.high)}</td></tr>
+    <tr><td><span class="score watch">Watch</span></td><td>next 20%</td><td>${oneIn(T.ecoli.rate.watch)}</td><td>${oneIn(T.entero.rate.watch)}</td></tr>
+    <tr><td><span class="score low" style="box-shadow: inset 0 0 0 1px var(--line)">Low</span></td><td>remaining 70%</td><td>${oneIn(T.ecoli.rate.low)}</td><td>${oneIn(T.entero.rate.low)}</td></tr>
     <tr><td class="fine">All samples</td><td></td><td class="fine">${oneIn(T.ecoli.base)}</td><td class="fine">${oneIn(T.entero.base)}</td></tr></tbody></table>`;
 }
-let toastT;
-function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 2200); }
-
 init().catch(e => { document.querySelector('main').innerHTML = `<p style="padding:24px">Could not load data (${e.message}). Serve this folder over http.</p>`; });
