@@ -302,3 +302,26 @@ td .na { color: var(--ink-3); }
 @media (max-width: 600px) { .c-pt .pid { font-size: 13px; } table.grid th.c-num, table.grid td.c-num { width: auto; } .c-pt .tag { display: none; } }
 .short { display: none; }
 @media (max-width: 600px) { .c-pt { display: none; } .long { display: none; } .short { display: inline; } .score { min-width: 48px; padding: 3px 6px; } }
+
+/* ---------- history ---------- */
+details.hist { margin-top: 16px; border-top: 1px solid var(--line-2); padding-top: 12px; }
+details.hist summary { cursor: pointer; font-weight: 600; font-size: 14px; color: var(--ink-2); list-style: none; display: flex; align-items: center; gap: 8px; }
+details.hist summary::-webkit-details-marker { display: none; }
+details.hist summary::before { content: "▸"; font-size: 12px; color: var(--ink-3); transition: transform .15s; }
+details.hist[open] summary::before { transform: rotate(90deg); }
+#histBox { margin-top: 10px; }
+.histsvg { width: 100%; height: auto; display: block; }
+.histsvg .hl1 { font-size: 11.5px; font-weight: 600; fill: var(--ink); }
+.histsvg .hl2, .histsvg .htick { font-size: 10px; fill: var(--ink-3); }
+.histsvg .hbg { fill: var(--raised); }
+.histsvg .hgrid { stroke: var(--line-2); stroke-width: 1; }
+.histsvg .hband { fill: var(--high-band); } .histsvg .wband { fill: var(--watch-band); }
+.histsvg .nband { fill: color-mix(in srgb, var(--accent) 8%, transparent); }
+.histsvg .fband { fill: var(--high-band); }
+.histsvg .hline { fill: none; stroke: var(--spark); stroke-width: 1.6; } .histsvg .hline.thin { stroke-width: 1.1; stroke: var(--ink-3); }
+.histsvg .hpt { stroke: var(--surface); stroke-width: 1.2; } .histsvg .hpt.high { fill: var(--high); } .histsvg .hpt.watch { fill: var(--watch); } .histsvg .hpt.low { fill: var(--ink-3); }
+.histsvg .hdot { fill: var(--ink-3); } .histsvg .hfever { fill: var(--high); }
+.histsvg .habx { fill: color-mix(in srgb, var(--accent) 55%, var(--ink-3)); }
+.histsvg .hbsi { stroke: var(--high); stroke-width: 2; } .histsvg .htoday { stroke: var(--ink); stroke-width: 1; stroke-dasharray: 3 3; }
+.c-pt .tag { white-space: nowrap; }
+@media (max-width: 600px) { .c-pt .tag { display: none; } }
